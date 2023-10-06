@@ -1,0 +1,351 @@
+---
+title: "texts_dynamic"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(readtext)
+```
+
+```{r}
+## Загрузка таблиц с метаданными + таблиц с длинами абзацев и предложений
+meta = read.csv("meta.csv", header = TRUE, sep = ";") %>% arrange(id)
+SAY_par_n = read.table("SAY_par_n.txt", sep = "\t", h = TRUE) %>% arrange(id)
+NAR_par_n = read.table("NAR_par_n.txt", sep = "\t", h = TRUE) %>% arrange(id)
+SAY_sent_n = read.table("SAY_sent_n.txt", sep = "\t", h = TRUE) %>% arrange(id)
+NAR_sent_n = read.table("NAR_sent_n.txt", sep = "\t", h = TRUE) %>% arrange(id)
+SAY_word_n = read.table("SAY_word_n.txt", sep = "\t", h = TRUE) %>% arrange(id)
+NAR_word_n = read.table("NAR_word_n.txt", sep = "\t", h = TRUE) %>% arrange(id)
+SAY_text_l = read.table("SAY_summary.txt", sep = "\t", h = TRUE) %>% arrange(id)
+NAR_text_l = read.table("NAR_summary.txt", sep = "\t", h = TRUE) %>% arrange(id)
+```
+
+1. Построение графиков для текстов с диалогами
+
+```{r}
+## Функция для расчёта скользящего среднего
+scale_mean = function(n, var) {
+  res = c()
+  for(i in 2:(n - 1)) {
+    res[i] = mean(c(var[i - 1], var[i], var[i + 1]))
+  }
+  res[1] = (2 * var[1] + var[2] - var[4])/2
+  res[n] = (2 * var[n] + var[n - 1] - var[n - 3])/2
+  res
+}
+```
+
+1.1. Абзацы
+
+```{r}
+## Динамика длин абзацев без сглаживания
+setwd("images/dialogues/unscaled/paragraph")
+
+for (i in c(1:535)) {
+  text = sent_n %>% filter(id == i) %>% arrange(par_id)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  
+  else {
+  text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  text = arrange(text, par_id)
+  
+  means = text %>% group_by(group) %>% summarise(mean = mean(sent_n))
+  means$mean = means$mean / mean(sent_n$sent_n)
+  
+  png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+  plot(x = as.numeric(means$group), y = means$mean, type = "l", lwd = 2, xaxt = "n", main = paste(meta$author[i], meta$name[i], sep = "_"), xlab = "Group", ylab = "Mean Length")
+  xticks = seq(1, 10, 1)
+  axis(1, at = xticks, labels = xticks)
+  dev.off()
+  i = i + 1
+  }
+}
+
+setwd("../../../../")
+```
+
+```{r}
+## Динамика длин абзацев со сглаживанием
+setwd("images/dialogues/scaled/paragraph")
+
+for (i in c(1:535)) {
+  text = sent_n %>% filter(id == i) %>% arrange(par_id)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  
+  else {  
+  text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  
+  means = text %>% group_by(group) %>% summarise(mean = mean(sent_n)) %>% mutate(scaled = (scale_mean(10, mean)))
+  means$scaled = means$scaled / mean(sent_n$sent_n)
+  
+  png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+  plot(x = as.numeric(means$group), y = means$scaled, type = "l", lwd = 2, xaxt = "n", main = paste(meta$author[i], meta$name[i], sep = "_"), xlab = "Group", ylab = "Mean Length")
+  xticks = seq(1, 10, 1)
+  axis(1, at = xticks, labels = xticks)
+  dev.off()
+  i = i + 1
+  }
+}
+
+setwd("../../../../")
+```
+
+1.2. Предложения
+
+```{r}
+## Динамика длин предложений без сглаживания
+setwd("images/dialogues/unscaled/sentence")
+
+for (i in c(1:535)) {
+  text = word_n %>% filter(id == i) %>% arrange(sent_gen)
+  text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  
+  means = text %>% group_by(group) %>% summarise(mean = mean(word_n))
+  means$mean = means$mean / mean(word_n$word_n)
+  
+  png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+  plot(x = as.numeric(means$group), y = means$mean, type = "l", lwd = 2, xaxt = "n", main = paste(meta$author[i], meta$name[i], sep = "_"), xlab = "Group", ylab = "Mean Length")
+  xticks = seq(1, 10, 1)
+  axis(1, at = xticks, labels = xticks)
+  dev.off()
+  i = i + 1
+}
+
+setwd("../../../../")
+```
+
+```{r}
+## Динамика длин предложений со сглаживанием
+setwd("images/dialogues/scaled/sentence")
+
+for (i in c(1:535)) {
+  text = word_n %>% filter(id == i) %>% arrange(sent_gen)
+  text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  
+  means = text %>% group_by(group) %>% summarise(mean = mean(word_n)) %>% mutate(scaled = scale_mean(10, mean))
+  means$scaled = means$scaled / mean(word_n$word_n)
+  
+  png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+  plot(x = as.numeric(means$group), y = means$scaled, type = "l", lwd = 2, xaxt = "n", main = paste(meta$author[i], meta$name[i], sep = "_"), xlab = "Group", ylab = "Mean Length")
+  xticks = seq(1, 10, 1)
+  axis(1, at = xticks, labels = xticks)
+  dev.off()
+  i = i + 1
+}
+
+setwd("../../../../")
+```
+
+2. Построение графиков для текстов без диалогов
+
+2.1. Абзацы
+
+```{r}
+## Динамика длин абзацев без сглаживания
+setwd("images/no_dialogues/unscaled/paragraph")
+
+for (i in c(1:535)) {
+  text = noDia_sent_n %>% filter(id == i) %>% arrange(par_id)
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  
+    means = text %>% group_by(group) %>% summarise(mean = mean(sent_n))
+    means$mean = means$mean / mean(noDia_sent_n$sent_n)
+  
+    png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+    plot(x = as.numeric(means$group), y = means$mean, type = "l", lwd = 2, xaxt = "n", main = meta$name[i], xlab = "Group", ylab = "Mean Length")
+    xticks = seq(1, 10, 1)
+    axis(1, at = xticks, labels = xticks)
+    dev.off()
+    i = i + 1
+  }
+}
+
+setwd("../../../../")
+```
+
+```{r}
+## Динамика длин абзацев со сглаживанием
+setwd("images/no_dialogues/scaled/paragraph")
+
+for (i in c(1:535)) {
+  text = noDia_sent_n %>% filter(id == i) %>% arrange(par_id)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  
+    means = text %>% group_by(group) %>% summarise(mean = mean(sent_n)) %>% dplyr::mutate(scaled = scale_mean(10, mean))
+    means$scaled = means$scaled / mean(noDia_sent_n$sent_n)
+  
+    png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+    plot(x = as.numeric(means$group), y = means$scaled, type = "l", lwd = 2, xaxt = "n", main = meta$name[i], xlab = "Group", ylab = "Mean Length")
+    xticks = seq(1, 10, 1)
+    axis(1, at = xticks, labels = xticks)
+    dev.off()
+    i = i + 1
+  }
+}
+
+setwd("../../../../")
+```
+
+2.2. Предложения
+
+```{r}
+## Динамика длин предложений без сглаживания
+setwd("images/no_dialogues/unscaled/sentence")
+
+for (i in c(1:535)) {
+  text = noDia_word_n %>% filter(id == i) %>% arrange(sent_gen)
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  
+    means = text %>% group_by(group) %>% summarise(mean = mean(word_n))
+    means$mean = means$mean / mean(noDia_word_n$word_n)
+  
+    png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+    plot(x = as.numeric(means$group), y = means$mean, type = "l", lwd = 2, xaxt = "n", main = paste(meta$author[i], meta$name[i], sep = "_"), xlab = "Group", ylab = "Mean Length")
+    xticks = seq(1, 10, 1)
+    axis(1, at = xticks, labels = xticks)
+    dev.off()
+    i = i + 1
+  }
+}
+
+setwd("../../../../")
+```
+
+```{r}
+## Динамика длин предложений со сглаживанием
+setwd("images/no_dialogues/scaled/sentence")
+
+for (i in c(1:535)) {
+  text = noDia_word_n %>% filter(id == i) %>% arrange(sent_gen)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+  
+    means = text %>% group_by(group) %>% summarise(mean = mean(word_n)) %>% mutate(scaled = scale_mean(10, mean))
+    means$scaled = means$scaled / mean(noDia_word_n$word_n)
+  
+    png(filename = paste(paste(meta$author[i], meta$name[i], sep = "_"), ".png", sep = ""))
+    plot(x = as.numeric(means$group), y = means$scaled, type = "l", lwd = 2, xaxt = "n", main = meta$name[i], xlab = "Group", ylab = "Mean Length")
+    xticks = seq(1, 10, 1)
+    axis(1, at = xticks, labels = xticks)
+    dev.off()
+    i = i + 1
+  }
+}
+
+setwd("../../../../")
+```
+
+3. Сохранение таблиц
+
+```{r}
+dir.create("tables")
+
+## Длины абзацев с группами:
+
+for (i in c(1:535)) {
+  dir.create(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), sep = "/"))
+  dir.create(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "dialogues", sep = "/"))
+  dir.create(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "narrative", sep = "/"))
+}
+```
+
+```{r}
+## Диалоги, абзацы
+for (i in c(1:535)) {
+  text = sent_n %>% filter(id == i) %>% arrange(par_id)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+
+    means = text %>% group_by(group) %>% summarise(mean_par = mean(sent_n)) %>% mutate(scaled_par = scale_mean(10, mean_par))
+    means$scaled_par_div = means$scaled_par / mean(sent_n$sent_n)
+
+    write.table(text, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "dialogues", "paragraphs", sep = "/"), "txt", sep = "."), sep = "\t")
+    write.table(means, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "dialogues", "paragraphs_means", sep = "/"), "txt", sep = "."), sep = "\t")
+  }
+}
+
+## Диалоги, предложения
+for (i in c(1:535)) {
+  text = word_n %>% filter(id == i) %>% arrange(par_id, sent_gen)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+
+    means = text %>% group_by(group) %>% summarise(mean_sent = mean(word_n)) %>% mutate(scaled_sent = scale_mean(10, mean_sent))
+    means$scaled_sent_div = means$scaled_sent / mean(word_n$word_n)
+
+    write.table(text, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "dialogues", "sentences", sep = "/"), "txt", sep = "."), sep = "\t")
+    write.table(means, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "dialogues", "sentences_means", sep = "/"), "txt", sep = "."), sep = "\t")
+  }
+}
+
+## Нарратив, абзацы
+for (i in c(1:535)) {
+  text = noDia_sent_n %>% filter(id == i) %>% arrange(par_id)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+
+    means = text %>% group_by(group) %>% summarise(mean_par = mean(sent_n)) %>% mutate(scaled_par = scale_mean(10, mean_par))
+    means$scaled_par_div = means$scaled_par / mean(noDia_sent_n$sent_n)
+
+    write.table(text, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "narrative", "paragraphs", sep = "/"), "txt", sep = "."), sep = "\t")
+    write.table(means, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "narrative", "paragraphs_means", sep = "/"), "txt", sep = "."), sep = "\t")
+  }
+}
+
+## Нарратив, предложения
+for (i in c(1:535)) {
+  text = noDia_word_n %>% filter(id == i) %>% arrange(par_id, sent_gen)
+  
+  if (nrow(text) == 0) {
+    i + 1
+  }
+  else {
+    text$group = cut(row_number(text$id), 10, labels = c(1:10))
+
+    means = text %>% group_by(group) %>% summarise(mean_sent = mean(word_n)) %>% mutate(scaled_sent = scale_mean(10, mean_sent))
+    means$scaled_sent_div = means$scaled_sent / mean(noDia_word_n$word_n)
+
+    write.table(text, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "narrative", "sentences", sep = "/"), "txt", sep = "."), sep = "\t")
+    write.table(means, paste(paste("tables", paste(meta$author[i], meta$name[i], sep = "_"), "narrative", "sentences_means", sep = "/"), "txt", sep = "."), sep = "\t")
+  }
+}
+```

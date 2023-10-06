@@ -1,0 +1,132 @@
+---
+title: "tokenization"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(stringi)
+library(readtext)
+```
+
+1. Загрузка файлов
+
+```{r}
+## Метаданные (ID рассказа, автор, название, год издания)
+meta = read.csv("meta.csv", header = TRUE, sep = ";") %>% arrange(id)
+```
+
+```{r}
+## Тексты рассказов
+texts1 = do.call(bind_rows, lapply(paste("clean", "1900-1913", list.files("clean/1900-1913"), sep="/"), readtext, encoding = "UTF-8"))
+texts2 = do.call(bind_rows, lapply(paste("clean", "1914-1922", list.files("clean/1914-1922"), sep="/"), readtext, encoding = "UTF-8"))
+texts3 = do.call(bind_rows, lapply(paste("clean", "1923-1930", list.files("clean/1923-1930"), sep="/"), readtext, encoding = "UTF-8"))
+texts_225 = do.call(bind_rows, lapply(paste("material_225", list.files("material_225"), sep="/"), readtext, encoding = "UTF-8"))
+text_all = rbind(texts1, texts2, texts3, texts_225)
+text_all$id = 1:nrow(text_all)
+text_all = text_all %>% arrange(id)
+
+##text_full = left_join(meta, text_all) %>% select(-c(comment, clean, dialogue, doc_id))
+
+rm(texts1, texts2, texts3, texts_225)
+```
+
+2. Токенизация
+
+2.1. Абзацы
+
+```{r}
+text_tokens = text_all %>% unnest_tokens(paragraph, text, token = "regex", pattern = "\n", drop = TRUE, to_lower = FALSE)
+text_tokens = text_tokens %>% filter(paragraph != " ")
+text_tokens$paragraph = trimws(text_tokens$paragraph)
+text_tokens$par_type = ifelse(str_detect(string = text_tokens$paragraph, pattern = "^\\p{Pd}") == TRUE, "SAY", "NAR")  # разделение абзацев на повествование и диалоги
+dict = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+         "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10.", "11.", "12.", "13.", "14.", "15.", "16.", "17.", "18.", "19.", "20.",
+         "I.", "II.", "III.", "IV.", "V.", "VI.", "VII.", "VIII.", "XIX.", "X.", "XI.", "XII.", "XIII.", "XIV.", "XV.", "XVI.", "XVII.", "XVIII.", "XIX.",
+         "XX.", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "XIX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX", "***")
+text_tokens = text_tokens %>% filter(!(paragraph %in% dict))
+text_tokens = text_tokens %>% group_by(id) %>% mutate(par_id = row_number()) %>% arrange(id, par_id)
+```
+
+```{r}
+## Создание двух отдельных датасетов - для абзацев в целом и для повествовательных абзацев
+SAY_par_n = text_tokens %>% group_by(id) %>% summarise(n = n()) %>% arrange(id)
+NAR_par_n = text_tokens %>% group_by(id) %>% filter(par_type != "SAY") %>% summarise(n = n()) %>% arrange(id)
+```
+
+```{r}
+write.table(SAY_par_n, "SAY_par_n.txt", sep = "\t", row.names = FALSE)
+write.table(NAR_par_n, "NAR_par_n.txt", sep = "\t", row.names = FALSE)
+```
+
+```{r}
+## Присоединение к датасету для метаданных длин текстов в абзацах (для абзацев в целом и повествовательных абз)
+SAY_text_l = left_join(meta, SAY_par_n)
+colnames(SAY_text_l) = c("id", "author", "name", "year", "par_n")
+NAR_text_l = left_join(meta, NAR_par_n)
+colnames(NAR_text_l) = c("id", "author", "name", "year", "par_n")
+```
+
+2.2. Предложения
+
+```{r}
+text_tokens = text_tokens %>% unnest_tokens(sentence, paragraph, token = "sentences", drop = TRUE, to_lower = FALSE) 
+text_tokens = text_tokens %>% group_by(id, par_id) %>% mutate(sent_loc = row_number()) %>% arrange(id, par_id, sent_loc) %>% group_by(id) %>% mutate(sent_gen = row_number())
+#sent_loc - номер предложения в абзаце
+#sent_gen - номер предложения в тексте
+```
+
+```{r}
+## Расчёт количества предложений в каждом абзаце
+SAY_sent_n = text_tokens %>% group_by(id, par_id) %>% summarise(n = n()) %>% arrange(id, par_id)
+NAR_sent_n = text_tokens %>% filter(par_type != "SAY") %>% group_by(id, par_id) %>% summarise(n = n()) %>% arrange(id, par_id)
+```
+
+```{r}
+write.table(SAY_sent_n, "SAY_sent_n.txt", sep = "\t", row.names = FALSE)
+write.table(NAR_sent_n, "NAR_sent_n.txt", sep = "\t", row.names = FALSE)
+```
+
+```{r}
+## Присоединение к датасету для метаданных длин текстов в предложениях
+df = text_tokens %>% group_by(id) %>% summarise(sent_n = n())
+SAY_text_l = left_join(SAY_text_l, df)
+df = text_tokens %>% filter(par_type != "SAY") %>% group_by(id) %>% summarise(sent_n = n())
+NAR_text_l = left_join(NAR_text_l, df)
+```
+
+2.3. Слова
+
+```{r}
+text_tokens = text_tokens %>% unnest_tokens(word, sentence, token = "words", drop = FALSE, to_lower = TRUE)
+text_tokens = text_tokens %>% group_by(id) %>% group_by(id, par_id, sent_gen) %>% mutate(word_loc = row_number()) %>% ungroup() %>% arrange(id, par_id, sent_gen, word_loc) %>% group_by(id) %>% mutate(word_gen = row_number())
+#word_loc - номер слова в предложении
+#word_gen - номер слова в тексте
+```
+
+```{r}
+## Расчёт количества слов в каждом предложении
+SAY_word_n = text_tokens %>% group_by(id, par_id, sent_gen) %>% summarise(n = n()) %>% arrange(id, par_id, sent_gen)
+NAR_word_n = text_tokens %>% filter(par_type != "SAY") %>% group_by(id, par_id, sent_gen) %>% summarise(n = n()) %>% arrange(id, par_id, sent_gen)
+```
+
+```{r}
+write.table(SAY_word_n, "SAY_word_n.txt", sep = "\t", row.names = FALSE)
+write.table(NAR_word_n, "NAR_word_n.txt", sep = "\t", row.names = FALSE)
+```
+
+```{r}
+## Присоединение к датасету для метаданных длин текстов в словах
+df = text_tokens %>% group_by(id) %>% summarise(word_n = n())
+SAY_text_l = left_join(SAY_text_l, df)
+df = text_tokens %>% filter(par_type != "SAY") %>% group_by(id) %>% summarise(word_n = n())
+NAR_text_l = left_join(NAR_text_l, df)
+```
+
+```{r}
+write.table(SAY_text_l, "SAY_summary.txt", sep = "\t", row.names = FALSE)
+write.table(NAR_text_l, "NAR_summary.txt", sep = "\t", row.names = FALSE)
+```
