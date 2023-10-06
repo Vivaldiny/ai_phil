@@ -1,0 +1,43 @@
+---
+title: "UDPipe lemmatization"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(stringi)
+library(readtext)
+```
+
+```{r}
+texts = list.files("corpus_wo_oldorth")
+
+texts_all = do.call(bind_rows, lapply("corpus_wo_oldorth", readtext, encoding = "UTF-8"))
+texts_all$id = 1:nrow(texts_all)
+texts_all = texts_all %>% arrange(id)
+
+dir.create("lemmatized")
+```
+
+```{r}
+## Подготовка модели UDPipe
+library(udpipe)
+dl = udpipe_download_model(language = "russian-syntagrus")
+
+udmodel_russian = udpipe_load_model(file = "D:/R_Projects/lemm/russian-syntagrus-ud-2.5-191206.udpipe")
+```
+
+```{r}
+for (i in 1:nrow(texts_all)) {
+  text = texts_all %>% filter(id == i)
+  s = udpipe_annotate(udmodel_russian, text$text, tagger = "default", parser = "none")
+  s = data.frame(s)
+  write.table(s, file = paste("lemmatized", paste(texts_all$doc_id[i], "txt", sep = "."), sep = "/"), sep = "\t", fileEncoding = "UTF-8")
+}
+```
+
+
+
+
+
