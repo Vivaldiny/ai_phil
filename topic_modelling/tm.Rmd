@@ -1,0 +1,305 @@
+---
+title: "topic modelling"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(stringi)
+library(readtext)
+```
+
+```{r}
+corpus5000 = readtext::readtext("MyStem_corpus-5000/corpus_lemmatized/*.txt", encoding = "UTF-8")
+corpus5000$id = str_extract(corpus5000$doc_id, "^[0-9]+")
+```
+
+```{r}
+texts = list.files("lemmatized")
+meta = read.csv("meta.csv", encoding = 'UTF-8')
+
+texts = as.data.frame(texts)
+colnames(texts) = c("name")
+texts$id = str_extract(texts$name, "^[0-9]+")
+head(texts, 30)
+
+meta$id = str_extract(meta$FILE.NAME, "^[0-9]+")
+head(meta, 30)
+
+corpus5000 = left_join(corpus5000, meta) %>% select(-FILE.NAME)
+corpus5000 = corpus5000 %>% select(-FILE.NAME)
+```
+
+```{r}
+tokens5000 = corpus5000 %>% unnest_tokens(words, text)
+#write.table(tokens5000, "tokens5000.txt", sep = "\t", fileEncoding = "UTF-8")
+```
+
+```{r}
+freq = tokens5000 %>% group_by(words) %>% summarise(freq = n())
+# write.table(freq, "freq.txt", sep = "\t", fileEncoding = "UTF-8")
+```
+
+1. Детская литература
+
+```{r}
+child = tokens5000 %>% filter(str_detect(GENRE, "Детск") == TRUE)
+freq = child %>% group_by(words) %>% summarise(freq = n())
+
+library(stopwords)
+stopwords = stopwords("ru")
+
+freq = freq %>% filter(str_detect(words, "[[:digit:]]") == FALSE) %>% filter(str_detect(words, "[[:punct:]]") == FALSE) %>% filter(str_detect(words, "[a-zA-Z]") == FALSE)
+stop = freq %>% filter(freq <= quantile(freq, 0.05) | freq >= quantile(freq, 0.99))
+stop2 = c("весь", "становиться", "это", "свой", "который", "мочь", "говорить", "коля", "митя", "митька", "степа", "демка", "алеша", "марина", "сергей", "яшка", "тихон", "ж", "васька", "гриша", "сережа", "оленька", "ефимок", "ваня", "ванька", "павлик", "вася", "нельгина", "ю", "санька", "фритиоф", "рудиш", "эрна", "думкопф", "гнедко", "нюшка", "ермак", "анисья", "стемида", "петрик", "кутузов", "коренев", "бэрд", "хаврюшка", "хабарда", "кирюшка", "муша", "кирюха", "захарьев", "гектор", "аксена", "аксен", "марефа", "яхурбет", "асейкин", "ингеборга", "омелько", "федот", "лодыжкин", "арто", "петч", "кира", "михайлик")
+stop_names = read.csv("clean_corpus.csv")
+child_clean = child %>% filter(!(words %in% stop$words)) %>% filter(!(words %in% stop2)) %>% filter(!(words %in% stop_names$name))
+```
+
+```{r}
+library(topicmodels)
+child_topic = child_clean %>% group_by(doc_id, words) %>% summarise(freq = n())
+child_matrix = cast_dtm(child_topic, term = words, document = doc_id, value = freq)
+child_model = LDA(child_matrix, k = 27, control = list(seed = 1234))
+child_topics = tidy(child_model, matrix = "beta")
+top_terms = child_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+top_terms
+top_terms = as.data.frame(top_terms)
+View(top_terms)
+```
+
+```{r}
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+```
+
+```{r}
+child_doc = tidy(child_model, matrix = "gamma")
+
+child_title = child_doc %>%
+  group_by(document) %>%
+  ungroup() %>%
+  arrange(document, -gamma)
+```
+
+```{r}
+write.table(top_terms, "tm_child_all.txt", sep = "\t", fileEncoding = "UTF-8")
+write.table(child_title, "tm_child_all_doc.txt", sep = "\t", fileEncoding = "UTF-8")
+
+png(filename = "tm_child_all.png")
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+dev.off()
+```
+
+```{r}
+library(ldatuning)
+
+child_tune = FindTopicsNumber(
+  child_matrix,
+  topics = seq(from = 2, to = 30, by = 5),
+  metrics = c("CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "VEM",
+  control = list(seed = 831),
+  mc.cores = 2L,
+  verbose = TRUE)
+
+FindTopicsNumber_plot(child_tune)
+```
+
+2. Детская литература 1900-1930 годов
+
+```{r}
+child_30 = child_clean %>% filter(YEAR %in% c(1900:1930))
+
+library(topicmodels)
+child_topic = child_30 %>% group_by(doc_id, words) %>% summarise(freq = n())
+child_matrix = cast_dtm(child_topic, term = words, document = doc_id, value = freq)
+child_model = LDA(child_matrix, k = 10, control = list(seed = 1234))
+child_topics = tidy(child_model, matrix = "beta")
+top_terms = child_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+top_terms
+top_terms = as.data.frame(top_terms)
+View(top_terms)
+```
+
+```{r}
+library(ldatuning)
+
+child_tune = FindTopicsNumber(
+  child_matrix,
+  topics = seq(from = 2, to = 10, by = 2),
+  metrics = c("CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "VEM",
+  control = list(seed = 831),
+  mc.cores = 2L,
+  verbose = TRUE)
+
+FindTopicsNumber_plot(child_tune)
+```
+
+```{r}
+child_doc = tidy(child_model, matrix = "gamma")
+
+child_title <- child_doc %>%
+  group_by(document) %>%
+  ungroup() %>%
+  arrange(document, -gamma)
+```
+
+```{r}
+write.table(top_terms, "tm_child30.txt", sep = "\t", fileEncoding = "UTF-8")
+write.table(child_title, "tm_child30_doc.txt", sep = "\t", fileEncoding = "UTF-8")
+
+png(filename = "tm_child30.png")
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+dev.off()
+```
+
+3. Сказки и детские рассказы
+
+```{r}
+child_tale = child_30 %>% filter((str_detect(GENRE, "[Сс]казк") == TRUE) | (str_detect(GENRE, "[Сс]казк") == TRUE))
+child_story = child_30 %>% filter(!(id %in% child_tale$id))
+```
+
+3.1. Сказки
+
+```{r}
+stop = c("лара", "беренников", "тадауша", "сафрон", "лукерьюшка", "обь", "мусма", "изольд", "фиериль", "строль", "дарж", "асена", "ролан", "варварушка", "агмат", "хадж", "бессо", "хе", "фома")
+child_tale = child_tale %>% filter(!(words %in% stop))
+```
+
+```{r}
+library(topicmodels)
+child_topic = child_tale %>% group_by(doc_id, words) %>% summarise(freq = n())
+child_matrix = cast_dtm(child_topic, term = words, document = doc_id, value = freq)
+child_model = LDA(child_matrix, k = 27, control = list(seed = 1234))
+child_topics = tidy(child_model, matrix = "beta")
+top_terms = child_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+top_terms
+top_terms = as.data.frame(top_terms)
+View(top_terms)
+```
+
+```{r}
+library(ldatuning)
+
+child_tune = FindTopicsNumber(
+  child_matrix,
+  topics = seq(from = 2, to = 30, by = 5),
+  metrics = c("CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "VEM",
+  control = list(seed = 831),
+  mc.cores = 2L,
+  verbose = TRUE)
+
+FindTopicsNumber_plot(child_tune)
+```
+
+```{r}
+child_doc = tidy(child_model, matrix = "gamma")
+
+child_title <- child_doc %>%
+  group_by(document) %>%
+  ungroup() %>%
+  arrange(document, -gamma)
+```
+
+```{r}
+write.table(top_terms, "tm_tales.txt", sep = "\t", fileEncoding = "UTF-8")
+write.table(child_title, "tm_tales_doc.txt", sep = "\t", fileEncoding = "UTF-8")
+
+png(filename = "tm_tales.png")
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+dev.off()
+```
+
+3.2. Детские рассказы
+
+```{r}
+library(topicmodels)
+child_topic = child_story %>% group_by(doc_id, words) %>% summarise(freq = n())
+child_matrix = cast_dtm(child_topic, term = words, document = doc_id, value = freq)
+child_model = LDA(child_matrix, k = 10, control = list(seed = 1234))
+child_topics = tidy(child_model, matrix = "beta")
+top_terms = child_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+top_terms
+top_terms = as.data.frame(top_terms)
+View(top_terms)
+```
+
+```{r}
+library(ldatuning)
+
+child_tune = FindTopicsNumber(
+  child_matrix,
+  topics = seq(from = 2, to = 10, by = 2),
+  metrics = c("CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "VEM",
+  control = list(seed = 831),
+  mc.cores = 2L,
+  verbose = TRUE)
+
+FindTopicsNumber_plot(child_tune)
+```
+
+```{r}
+child_doc = tidy(child_model, matrix = "gamma")
+
+child_title <- child_doc %>%
+  group_by(document) %>%
+  ungroup() %>%
+  arrange(document, -gamma)
+```
+
+```{r}
+write.table(top_terms, "tm_story.txt", sep = "\t", fileEncoding = "UTF-8")
+write.table(child_title, "tm_story_doc.txt", sep = "\t", fileEncoding = "UTF-8")
+
+png(filename = "tm_story.png")
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+dev.off()
+```
